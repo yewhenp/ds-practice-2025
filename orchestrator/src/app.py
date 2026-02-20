@@ -28,7 +28,7 @@ def check_fraud(card_number, order_amount):
         # Call the service through the stub object.
         response = stub.CheckFraud(fraud_detection.FraudRequest(card_number=card_number, order_amount=order_amount))
     
-    print("Got answer, response.is_fraud = ", response.is_fraud)
+    print("Got answer, response.is_fraud = ", response.is_fraud, ", response.message = ", response.message)
     return response.is_fraud
 
 # Import Flask.
