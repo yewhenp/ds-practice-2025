@@ -131,7 +131,7 @@
                         ${result.status === "Order Approved" ?
                             `Suggested Books:
                             <ul class="list-disc pl-5 mt-2 space-y-1">${suggestedBooks}</ul>`
-                        : ``
+                        : `<p>${result.errorMessage}</p>`
                         }
                     `;
                     color = result.status === 'Order Approved' ? 'green' : 'red';

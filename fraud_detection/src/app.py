@@ -23,10 +23,9 @@ class FraudDetectionService(fraud_detection_grpc.FraudDetectionService):
         # Set the greeting field of the response object
         if request.card_number == "4111111111111111":
             response.is_fraud = True
-            response.message = "Fraudulent card number."
+            response.error_message = "Fraudulent card number."
         else:
             response.is_fraud = False
-            response.message = "No fraud detected."
         # Print the greeting message
         # Return the response object
         return response

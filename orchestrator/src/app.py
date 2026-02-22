@@ -1,43 +1,14 @@
-import sys
-import os
-
-# This set of lines are needed to import the gRPC stubs.
-# The path of the stubs is relative to the current file, or absolute inside the container.
-# Change these lines only if strictly needed.
-FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
-fraud_detection_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/fraud_detection'))
-sys.path.insert(0, fraud_detection_grpc_path)
-import fraud_detection_pb2 as fraud_detection
-import fraud_detection_pb2_grpc as fraud_detection_grpc
-
-import grpc
-
-# def greet(name='you'):
-#     # Establish a connection with the fraud-detection gRPC service.
-#     with grpc.insecure_channel('fraud_detection:50051') as channel:
-#         # Create a stub object.
-#         stub = fraud_detection_grpc.HelloServiceStub(channel)
-#         # Call the service through the stub object.
-#         response = stub.SayHello(fraud_detection.HelloRequest(name=name))
-#     return response.greeting
-
-def check_fraud(card_number, order_amount):
-    print("Startying check_fraud with ", card_number, order_amount)
-    with grpc.insecure_channel('fraud_detection:50051') as channel:
-        stub = fraud_detection_grpc.FraudDetectionServiceStub(channel)
-        # Call the service through the stub object.
-        response = stub.CheckFraud(fraud_detection.FraudRequest(card_number=card_number, order_amount=order_amount))
-    
-    print("Got answer, response.is_fraud = ", response.is_fraud, ", response.message = ", response.message)
-    return response.is_fraud
-
 # Import Flask.
 # Flask is a web framework for Python.
 # It allows you to build a web application quickly.
 # For more information, see https://flask.palletsprojects.com/en/latest/
 from flask import Flask, request
 from flask_cors import CORS
+
 import json
+import asyncio
+
+from fraud_detection import check_fraud
 
 # Create a simple Flask app.
 app = Flask(__name__)
@@ -56,8 +27,14 @@ def index():
     # return response
     return "hello from orchestrator"
 
+def transform_results(results: list[dict]):
+    return {
+        result["service"]: result["data"]
+        for result in results
+    }
+
 @app.route('/checkout', methods=['POST'])
-def checkout():
+async def checkout():
     """
     Responds with a JSON object containing the order ID, status, and suggested books.
     """
@@ -66,29 +43,31 @@ def checkout():
     # Print request object data
     print("Request Data:", request_data.get('items'))
 
-    is_fraud = check_fraud(request_data.get("creditCard").get("number"), float(len(request_data.get('items'))))
+    order_id = '12345'
 
-    if not is_fraud:
-        # Dummy response following the provided YAML specification for the bookstore
-        order_status_response = {
-            'orderId': '12345',
-            'status': 'Order Approved',
-            'suggestedBooks': [
-                {'bookId': '123', 'title': 'The Best Book', 'author': 'Author 1'},
-                {'bookId': '456', 'title': 'The Second Best Book', 'author': 'Author 2'}
-            ]
-        }
+    parallel_results = await asyncio.gather(
+        check_fraud(request_data.get("creditCard").get("number"), float(len(request_data.get('items')))),
+    )
+    results = transform_results(parallel_results)
+
+    suggested_books = [
+        {'bookId': '123', 'title': 'The Best Book', 'author': 'Author 1'},
+        {'bookId': '456', 'title': 'The Second Best Book', 'author': 'Author 2'}
+    ]
+
+    order_response = {
+        'orderId': order_id,
+        'suggestedBooks': suggested_books
+    }
+
+    if results["fraud_detection"]["is_fraud"]:
+        order_response["status"] = "Order Denied"
+        order_response["errorMessage"] = results['fraud_detection']['error_message']
     else:
-        order_status_response = {
-            'orderId': '12345',
-            'status': 'Order Denied',
-            'suggestedBooks': [
-                {'bookId': '123', 'title': 'The Best Book', 'author': 'Author 1'},
-                {'bookId': '456', 'title': 'The Second Best Book', 'author': 'Author 2'}
-            ]
-        }
+        order_response["status"] = "Order Approved"
+    
+    return order_response
 
-    return order_status_response
 
 
 if __name__ == '__main__':
