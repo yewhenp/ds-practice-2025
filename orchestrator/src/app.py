@@ -46,7 +46,7 @@ async def checkout():
     order_id = '12345'
 
     parallel_results = await asyncio.gather(
-        check_fraud(request_data.get("creditCard").get("number"), float(len(request_data.get('items')))),
+        check_fraud(request_data),
     )
     results = transform_results(parallel_results)
 

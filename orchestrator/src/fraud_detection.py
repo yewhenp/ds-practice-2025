@@ -12,21 +12,30 @@ import fraud_detection_pb2_grpc as fraud_detection_grpc
 
 import grpc
 
-# def greet(name='you'):
-#     # Establish a connection with the fraud-detection gRPC service.
-#     with grpc.insecure_channel('fraud_detection:50051') as channel:
-#         # Create a stub object.
-#         stub = fraud_detection_grpc.HelloServiceStub(channel)
-#         # Call the service through the stub object.
-#         response = stub.SayHello(fraud_detection.HelloRequest(name=name))
-#     return response.greeting
-
-async def check_fraud(card_number, order_amount):
-    print("Startying check_fraud with ", card_number, order_amount)
+async def check_fraud(request_data):
+    print("Starting check_fraud with user:", request_data.get("user"))
     async with grpc.aio.insecure_channel('fraud_detection:50051') as channel:
         stub = fraud_detection_grpc.FraudDetectionServiceStub(channel)
+        user_info = fraud_detection.User(**request_data["user"])
+        credit_card_info = fraud_detection.CreditCard(
+            number=request_data["creditCard"]["number"],
+            expiration_date=request_data["creditCard"]["expirationDate"],
+            cvv=request_data["creditCard"]["cvv"]
+        )
+        items = [fraud_detection.OrderItem(**item) for item in request_data["items"]]
+        billing_address_info = fraud_detection.BillingAddress(**request_data["billingAddress"])
+        fraud_request = fraud_detection.FraudRequest(
+            user=user_info,
+            credit_card=credit_card_info,
+            user_comment=request_data["userComment"] or "",
+            items=items,
+            billing_address=billing_address_info,
+            shipping_method=request_data["shippingMethod"],
+            gift_wrapping=request_data["giftWrapping"],
+            terms_accepted=request_data["termsAccepted"]
+        )
         # Call the service through the stub object.
-        response = await stub.CheckFraud(fraud_detection.FraudRequest(card_number=card_number, order_amount=order_amount))
+        response = await stub.CheckFraud(fraud_request)
     
     if response.is_fraud:
         print("Got answer, response.is_fraud = ", response.is_fraud, ", response.error_message = ", response.error_message)
