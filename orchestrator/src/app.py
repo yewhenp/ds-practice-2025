@@ -9,6 +9,7 @@ import json
 import asyncio
 
 from fraud_detection import check_fraud
+from transaction_verification import verify_transaction
 
 # Create a simple Flask app.
 app = Flask(__name__)
@@ -47,6 +48,7 @@ async def checkout():
 
     parallel_results = await asyncio.gather(
         check_fraud(request_data),
+        verify_transaction(request_data),
     )
     results = transform_results(parallel_results)
 
@@ -63,6 +65,9 @@ async def checkout():
     if results["fraud_detection"]["is_fraud"]:
         order_response["status"] = "Order Denied"
         order_response["errorMessage"] = results['fraud_detection']['error_message']
+    elif not results["transaction_verification"]["transaction_valid"]:
+        order_response["status"] = "Order Denied"
+        order_response["errorMessage"] = results['transaction_verification']['error_message']
     else:
         order_response["status"] = "Order Approved"
     
