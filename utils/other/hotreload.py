@@ -24,7 +24,7 @@ class OnAnyModifiedFileHandler(FileSystemEventHandler):
         self.idle_time = 0.5  # Time in seconds to consider a file as "closed"
 
     def on_modified(self, event):
-        if event.is_directory or '__pycache__' in event.src_path:
+        if event.is_directory or '__pycache__' in event.src_path or event.src_path.endswith(".log"):
             return  # Ignore directories and __pycache__
 
         # Track pending files and their last modification time

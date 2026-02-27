@@ -13,6 +13,11 @@ import fraud_detection_pb2_grpc as fraud_detection_grpc
 import grpc
 from concurrent import futures
 
+utils_path = os.path.abspath(os.path.join(FILE, '../../../utils/'))
+sys.path.insert(0, utils_path)
+from log_utils.logger import setup_logger
+logger = setup_logger("FraudDetectionService")
+
 from openai import OpenAI
 
 import json
@@ -75,7 +80,7 @@ def request_to_json(request):
 
 def get_ai_response(request):
     prompt = AI_PROMPT_TEMPLATE + request_to_json(request)
-    print("AI Prompt:", prompt)
+    logger.info(f"AI Prompt: {prompt}")
     resp = open_ai_client.responses.create(
         model=os.environ.get("OPENAI_MODEL", "gpt-5.2"),
         input=[{"role": "user", "content": prompt}],
@@ -108,11 +113,11 @@ def validate_schema(parsed):
 
 def ai_check(request):
     model_text = get_ai_response(request)
-    print("AI Response:", model_text)
+    logger.info(f"AI Response: {model_text}")
     json_str = get_json_from_ai_response(model_text)
-    print("Extracted JSON from AI Response:", json_str)
+    logger.info(f"Extracted JSON from AI Response: {json_str}")
     parsed = json.loads(json_str)
-    print("Parsed AI Response:", parsed)
+    logger.info(f"Parsed AI Response: {parsed}")
     validate_schema(parsed)
     return parsed
 
@@ -124,7 +129,7 @@ class FraudDetectionService(fraud_detection_grpc.FraudDetectionService):
         try:
             return fraud_detection.FraudResponse(**ai_check(request))
         except Exception as e:
-            print("Error during AI check:", str(e))
+            logger.error(f"Error during AI check: {str(e)}")
             return fraud_detection.FraudResponse(
                 is_fraud=True, 
                 error_message="AI Check Failed: suspected prompt injection or malformed response."
@@ -140,7 +145,7 @@ def serve():
     server.add_insecure_port("[::]:" + port)
     # Start the server
     server.start()
-    print("Server started. Listening on port 50051.")
+    logger.info("Server started. Listening on port 50051.")
     # Keep thread alive
     server.wait_for_termination()
 

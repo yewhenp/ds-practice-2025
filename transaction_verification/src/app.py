@@ -1,8 +1,5 @@
 import sys
 import os
-import logging
-
-logger = logging.getLogger(__name__)
 
 FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
 transaction_verification_grpc_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/transaction_verification'))
@@ -10,10 +7,17 @@ sys.path.insert(0, transaction_verification_grpc_path)
 import transaction_verification_pb2 as transaction_verification
 import transaction_verification_pb2_grpc as transaction_verification_grpc
 
+utils_path = os.path.abspath(os.path.join(FILE, '../../../utils/'))
+sys.path.insert(0, utils_path)
+from log_utils.logger import setup_logger
+
 import grpc
 from concurrent import futures
 import datetime
 from geopy.geocoders import Nominatim
+
+
+logger = setup_logger("TransactionVerificationService")
 
 
 def validate_credit_card(card_number):
@@ -98,6 +102,7 @@ def validate_location(location_obj):
             geolocator = Nominatim(user_agent="transaction_verification")
             location = geolocator.geocode(address)
             if location is None:
+                logger.error("Location is not found")
                 return False
             logger.info(f"Location is resolved: {location}")
             return True
@@ -159,7 +164,10 @@ def verify_transaction(input_data):
 class TransactionVerificationService(transaction_verification_grpc.TransactionVerificationService):
     def VerifyTransaction(self, request, context):
         try:
-            return verify_transaction(request)
+            result = verify_transaction(request)
+            if not result.transaction_valid:
+                logger.error(f"Transaction is invalid: {result.error_message}")
+            return result
         except Exception as e:
             logger.error(f"Failed to do transaction verification: {str(e)}")
             return transaction_verification.TransactionVerficationResponse(
@@ -168,13 +176,6 @@ class TransactionVerificationService(transaction_verification_grpc.TransactionVe
             )
 
 def serve():
-    logger.setLevel(logging.INFO)
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - TransactionVerificationService - %(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-
     server = grpc.server(futures.ThreadPoolExecutor())
     transaction_verification_grpc.add_TransactionVerificationServiceServicer_to_server(TransactionVerificationService(), server)
     port = "50052"

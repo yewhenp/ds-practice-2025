@@ -12,8 +12,13 @@ import fraud_detection_pb2_grpc as fraud_detection_grpc
 
 import grpc
 
+utils_path = os.path.abspath(os.path.join(FILE, '../../../utils/'))
+sys.path.insert(0, utils_path)
+from log_utils.logger import setup_logger
+logger = setup_logger("Orchestrator")
+
 async def check_fraud(request_data):
-    print("Starting check_fraud with user:", request_data.get("user"))
+    logger.info(f"Starting check_fraud with user: {request_data.get('user')}")
     async with grpc.aio.insecure_channel('fraud_detection:50051') as channel:
         stub = fraud_detection_grpc.FraudDetectionServiceStub(channel)
         user_info = fraud_detection.User(**request_data["user"])
@@ -38,9 +43,9 @@ async def check_fraud(request_data):
         response = await stub.CheckFraud(fraud_request)
     
     if response.is_fraud:
-        print("Got answer, response.is_fraud = ", response.is_fraud, ", response.error_message = ", response.error_message)
+        logger.error(f"Got answer, response.is_fraud = {response.is_fraud}, response.error_message = {response.error_message}")
     else:
-        print("Got answer, response.is_fraud = ", response.is_fraud)
+        logger.info(f"Got answer, response.is_fraud = {response.is_fraud}")
     return {
         "service": "fraud_detection",
         "data": { "is_fraud": response.is_fraud, "error_message": response.error_message }

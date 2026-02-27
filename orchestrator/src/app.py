@@ -4,17 +4,28 @@
 # For more information, see https://flask.palletsprojects.com/en/latest/
 from flask import Flask, request
 from flask_cors import CORS
+from flask.logging import default_handler
 
 import json
 import asyncio
+import sys
+import os
 
 from fraud_detection import check_fraud
 from transaction_verification import verify_transaction
+
+FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
+utils_path = os.path.abspath(os.path.join(FILE, '../../../utils/'))
+sys.path.insert(0, utils_path)
+from log_utils.logger import setup_logger
+logger = setup_logger("Orchestrator")
+logger.addHandler(default_handler)
 
 # Create a simple Flask app.
 app = Flask(__name__)
 # Enable CORS for the app.
 CORS(app, resources={r'/*': {'origins': '*'}})
+
 
 # Define a GET endpoint.
 @app.route('/', methods=['GET'])
@@ -42,7 +53,7 @@ async def checkout():
     # Get request object data to json
     request_data = json.loads(request.data)
     # Print request object data
-    print("Request Data:", request_data.get('items'))
+    logger.info(f"Request Data: {request_data.get('items')}")
 
     order_id = '12345'
 

@@ -9,8 +9,14 @@ import transaction_verification_pb2_grpc as transaction_verification_grpc
 
 import grpc
 
+utils_path = os.path.abspath(os.path.join(FILE, '../../../utils/'))
+sys.path.insert(0, utils_path)
+from log_utils.logger import setup_logger
+logger = setup_logger("Orchestrator")
+
+
 async def verify_transaction(request_data):
-    print("Starting verify_transaction with user:", request_data.get("user"))
+    logger.info(f"Starting verify_transaction with user: {request_data.get('user')}")
     async with grpc.aio.insecure_channel('transaction_verification:50052') as channel:
         stub = transaction_verification_grpc.TransactionVerificationServiceStub(channel)
         credit_card_info = transaction_verification.CreditCard(
@@ -28,9 +34,9 @@ async def verify_transaction(request_data):
         response = await stub.VerifyTransaction(rpc_request)
     
     if not response.transaction_valid:
-        print("Got answer, response.transaction_valid = ", response.transaction_valid, ", response.error_message = ", response.error_message)
+        logger.error(f"Got answer, response.transaction_valid = {response.transaction_valid}, response.error_message = {response.error_message}")
     else:
-        print("Got answer, response.transaction_valid = ", response.transaction_valid)
+        logger.info(f"Got answer, response.transaction_valid = {response.transaction_valid}")
     return {
         "service": "transaction_verification",
         "data": { "transaction_valid": response.transaction_valid, "error_message": response.error_message }
