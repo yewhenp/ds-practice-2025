@@ -89,11 +89,12 @@ async def init_transaction(request_data, order_id, connection_string, stub_class
     logger.info(f"InitTransaction - Order ID: {order_id}, Service: {connection_string}, Done")
     return response
 
-async def clear_transaction(order_id, connection_string, stub_class):
+async def clear_transaction(order_id, vector_clock, connection_string, stub_class):
     async with grpc.aio.insecure_channel(connection_string) as channel:
         stub = stub_class(channel)
         request = order_details.OperationalMessage(
             order_id=order_id,
+            vector_clock=vector_clock
         )
         response = await stub.ClearTransaction(request)
     logger.info(f"ClearTransaction - Order ID: {order_id}, Service: {connection_string}, Done")
@@ -126,11 +127,11 @@ async def call_parallel_services(general_vector_clock, *services):
     general_vector_clock = merge_into_general_vector_clock(general_vector_clock, *results)
     return general_vector_clock, ""
 
-async def clear_parallel_services(order_id):
+async def clear_parallel_services(order_id, vector_clock):
     return await asyncio.gather(
-        clear_transaction(order_id, "transaction_verification:50052", transaction_verification_grpc.TransactionVerificationServiceStub),
-        clear_transaction(order_id, "fraud_detection:50051", fraud_detection_grpc.FraudDetectionServiceStub),
-        clear_transaction(order_id, "recommendation_system:50053", recommendation_system_grpc.RecommendationServiceStub),
+        clear_transaction(order_id, vector_clock, "transaction_verification:50052", transaction_verification_grpc.TransactionVerificationServiceStub),
+        clear_transaction(order_id, vector_clock, "fraud_detection:50051", fraud_detection_grpc.FraudDetectionServiceStub),
+        clear_transaction(order_id, vector_clock, "recommendation_system:50053", recommendation_system_grpc.RecommendationServiceStub),
     )
 
 @app.route('/checkout', methods=['POST'])
@@ -160,7 +161,7 @@ async def checkout():
         call_action(order_id, "transaction_verification:50052", transaction_verification_grpc.TransactionVerificationServiceStub, "VerifyItems", vector_clock=general_vector_clock),
     )
     if error_message:
-        _ = await clear_parallel_services(order_id)
+        _ = await clear_parallel_services(order_id, general_vector_clock)
         order_response["status"] = "Order Denied"
         order_response["errorMessage"] = error_message
         return order_response
@@ -176,8 +177,8 @@ async def checkout():
         "author": book.author,
         "description": book.description
     } for book in recommended_books]
-    
-    _ = await clear_parallel_services(order_id)
+
+    _ = await clear_parallel_services(order_id, general_vector_clock)
     await add_to_order_queue(create_input_order_details(request_data, order_id))
     return order_response
 
