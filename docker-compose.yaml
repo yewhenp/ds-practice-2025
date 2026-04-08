@@ -111,7 +111,6 @@ services:
       - 50055
     environment:
       - EXECUTOR_ID=1
-      - REPLICAS=3
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/order_executor/src/app.py
     volumes:
@@ -126,7 +125,6 @@ services:
       - 50055
     environment:
       - EXECUTOR_ID=2
-      - REPLICAS=3
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/order_executor/src/app.py
     volumes:
@@ -141,7 +139,6 @@ services:
       - 50055
     environment:
       - EXECUTOR_ID=3
-      - REPLICAS=3
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/order_executor/src/app.py
     volumes:
