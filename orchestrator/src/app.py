@@ -123,9 +123,9 @@ async def call_parallel_services(general_vector_clock, *services):
     all_success = all(result.status.success for result in results)
     if not all_success:
         error_messages = [result.status.error_message for result in results if not result.status.success]
-        return general_vector_clock, "; ".join(error_messages)
+        return general_vector_clock, "; ".join(error_messages), results
     general_vector_clock = merge_into_general_vector_clock(general_vector_clock, *results)
-    return general_vector_clock, ""
+    return general_vector_clock, "", results
 
 async def clear_parallel_services(order_id, vector_clock):
     return await asyncio.gather(
@@ -156,7 +156,7 @@ async def checkout():
         init_transaction(request_data, order_id, "recommendation_system:50053", recommendation_system_grpc.RecommendationServiceStub),
     )
 
-    general_vector_clock, error_message = await call_parallel_services(
+    general_vector_clock, error_message, results = await call_parallel_services(
         general_vector_clock,
         call_action(order_id, "transaction_verification:50052", transaction_verification_grpc.TransactionVerificationServiceStub, "VerifyItems", vector_clock=general_vector_clock),
     )
@@ -167,10 +167,6 @@ async def checkout():
         return order_response
 
     order_response["status"] = "Order Approved"
-    results = await asyncio.gather(
-        call_action(order_id, "recommendation_system:50053", recommendation_system_grpc.RecommendationServiceStub, "GetRecommendations", vector_clock=general_vector_clock),
-    )
-    general_vector_clock = merge_into_general_vector_clock(general_vector_clock, *results)
     recommended_books = results[0].recommended_books
     order_response["suggestedBooks"] = [{
         "title": book.title,
