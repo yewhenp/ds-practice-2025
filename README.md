@@ -47,18 +47,18 @@ Methods:
 
 ### System Model
 
-The system follows a **microservice architecture with centralized orchestration**. The orchestrator is the control plane for checkout validation, while order execution is decoupled through an order queue and replicated executors.
+The system follows a **microservice architecture with centralized entry point + chained backend execution**. The orchestrator receives checkout requests and initializes/cleans service state, while most validation events are executed through service-to-service calls. Order execution is decoupled through an order queue and replicated executors.
 
 #### Architecture Type
 
-- Orchestrated microservices with partial-order event flow.
+- Orchestrated microservices with partial-order event flow and intra-service threading.
 - Hybrid communication model: synchronous gRPC for validation path, asynchronous queue/executor path for order execution.
-- Vector-clock-based causal tracking across transaction-verification, fraud-detection, and recommendation services.
+- Vector-clock-based causal tracking across transaction-verification, fraud-detection, and recommendation services (3-component clocks).
 
 #### Service Roles
 
 - **Frontend**: sends checkout requests over HTTP.
-- **Orchestrator**: entry point, generates unique `OrderID`, dispatches event calls, merges vector clocks, returns response.
+- **Orchestrator**: entry point, generates unique `OrderID`, initializes services, triggers validation flow, clears transactions, enqueues approved orders.
 - **Transaction Verification**: validates items, credit card format/vendor/expiry/CVV, and billing address.
 - **Fraud Detection**: checks known fraud signals and runs AI-based fraud analysis.
 - **Recommendation System**: generates recommendations with AI and deterministic fallback.
@@ -68,17 +68,23 @@ The system follows a **microservice architecture with centralized orchestration*
 #### Connections Between Services
 
 - `frontend -> orchestrator` over REST (`/checkout`).
-- `orchestrator -> transaction_verification`, `fraud_detection`, `recommendation_system` over gRPC.
+- `orchestrator -> transaction_verification`, `fraud_detection`, `recommendation_system` over gRPC for `InitTransaction` and `ClearTransaction`.
+- `orchestrator -> transaction_verification` over gRPC (`VerifyItems`) to start the validation/event chain.
+- `transaction_verification -> fraud_detection` over gRPC (`CheckKnownFraudUsers`, `CheckKnownFraudLocations`, `CheckGeneralFraud`).
+- `fraud_detection -> recommendation_system` over gRPC (`GetRecommendations`) when fraud checks pass.
 - `orchestrator -> order_queue` over gRPC (`Enqueue`) after successful validation flow.
 - `order_executor leader -> order_queue` over gRPC (`Dequeue`).
-- `order_executor replicas <-> each other` over gRPC (`Election`, `AnnounceLeader`, `Heartbeat`).
+- `order_executor replicas <-> each other` over gRPC (`Election`, `Coordinator`, `Heartbeat`).
 
 #### Event Ordering and Vector Clocks
 
-- For each new `OrderID`, all backend services initialize local cached order state and local vector clock `(0,0,0)`.
+- For each new `OrderID`, transaction-verification, fraud-detection, and recommendation-system initialize local cached order state and local vector clock `(0,0,0)`.
 - Each event updates vector clock with the rule: component-wise `max(local, incoming)`, then increments own service index.
-- Events are partially ordered with concurrency (for example, `a || b` and dependent follow-up events), and the orchestrator merges returned clocks using component-wise max.
-- On successful completion, the final vector clock `VCf` represents a causally complete order flow.
+- Validation flow is partially ordered with concurrency:
+  - In transaction verification, local checks run in parallel with remote fraud events using threads.
+  - In recommendation system, `ExtractCartSignals` and `ExtractCommentSignals` run in parallel, then join into generation/validation.
+- In current flow, fraud events receive TV clocks, so early FD clocks are expected to look like `(1,1,0)` then `(2,2,0)` rather than `(0,1,0)` and `(0,2,0)`.
+- The orchestrator uses the returned status clock as the final clock for cleanup broadcast (`ClearTransaction`).
 
 #### Failure Modes and Handling
 
@@ -90,6 +96,7 @@ The system follows a **microservice architecture with centralized orchestration*
 - **Leader failure (executors)**: heartbeat timeout triggers bully-election rerun.
 - **Queue empty**: non-fatal; leader keeps polling.
 - **State durability limitation**: order cache/vector-clock state is in memory; service restart can lose transient per-order state.
+- **Clear consistency nuance**: strict vector-clock compatibility check on clear is implemented in recommendation service; other services clear by order id.
 
 #### Consistency and Trade-offs
 
