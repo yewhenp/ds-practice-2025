@@ -39,8 +39,11 @@ Methods:
 
 ### Vector Clock Diagram
 
-![Vector Clock Diagram](docs/leader-election-initial.png)
-![Vector Clock Diagram](docs/leader-election-reclaim.png)
+![Vector Clock Diagram](img/VC_Diagram.png)
+
+### Leader Election Diagram
+![Leader Election Diagram](docs/leader-election-initial.png)
+![Leader Election Diagram](docs/leader-election-reclaim.png)
 
 ### System Model
 
