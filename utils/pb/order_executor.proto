@@ -25,6 +25,6 @@ message HeartbeatReply {
 
 service OrderExecutorService {
   rpc Election(ElectionRequest) returns (ElectionReply);
-  rpc AnnounceLeader(CoordinatorMessage) returns (CoordinatorReply);
+  rpc Coordinator(CoordinatorMessage) returns (CoordinatorReply);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatReply);
 }

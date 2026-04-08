@@ -111,7 +111,6 @@ services:
       - 50055
     environment:
       - EXECUTOR_ID=1
-      - REPLICAS=3
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/order_executor/src/app.py
     volumes:
@@ -126,7 +125,6 @@ services:
       - 50055
     environment:
       - EXECUTOR_ID=2
-      - REPLICAS=3
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/order_executor/src/app.py
     volumes:
@@ -141,7 +139,21 @@ services:
       - 50055
     environment:
       - EXECUTOR_ID=3
-      - REPLICAS=3
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/order_executor/src/app.py
+    volumes:
+      - ./utils:/app/utils
+      - ./order_executor/src:/app/order_executor/src
+      - ./logs:/app/logs
+  
+  order_executor_12:
+    build:
+      context: ./
+      dockerfile: ./order_executor/Dockerfile
+    expose:
+      - 50055
+    environment:
+      - EXECUTOR_ID=12
       - PYTHONUNBUFFERED=TRUE
       - PYTHONFILE=/app/order_executor/src/app.py
     volumes:
