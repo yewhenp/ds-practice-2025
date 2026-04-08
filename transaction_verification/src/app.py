@@ -135,6 +135,10 @@ def validate_order_list(orders):
 
 
 class TransactionVerificationService(BaseServiceWrapper, transaction_verification_grpc.TransactionVerificationService):
+    def __init__(self, service_id, n_services):
+        super().__init__(service_id, n_services)
+        self.logger = logger
+
     def _do_verification(self, request, verify_function):
         data = self.order_details.get(request.order_id, None)
 
@@ -142,39 +146,61 @@ class TransactionVerificationService(BaseServiceWrapper, transaction_verificatio
             logger.error(f"Order id {request.order_id} is not found")
             return False, f"Order id {request.order_id} is not found"
 
-        for fn in verify_function:
+        for fn, fname in verify_function:
             result = fn(data)
             if not result:
-                return result, f"Verification failed for function {fn.__name__}"
+                return result, f"Verification failed for {fname}"
         return True, ""
-    
-    def _method_template(self, request, verify_functions, stub_class, connection_string, method_name):
-        status = order_details.StatusMessage(
-            success=True,
-            order_id=request.order_id,
-            vector_clock=self.vector_clocks[request.order_id]
-        )
 
-        try:
-            if len(verify_functions) > 0:
-                self._update_vector_clock(request.order_id, request.vector_clock)
-                res, err_message = self._do_verification(request, verify_functions)
-                status.success = res
-                status.error_message = err_message
-
-            if status.success:
-                res = self._send_request_to_service(
+    def _send_request_to_service_treaded(self, request, stub_class, connection_string, method_name, result_container, index):
+        result_container[index] = self._send_request_to_service(
                     stub_class=stub_class,
                     connection_string=connection_string,
                     method_name=method_name,
                     message=request
                 )
-                return res
-            else:
+
+    def VerifyItems(self, request, context):
+        try:
+            logger.info(f"Verifying items for order id {request.order_id} with vector clock {self.vector_clocks[request.order_id]}")
+            self._update_vector_clock(request.order_id, request.vector_clock)
+
+            status = order_details.StatusMessage(
+                success=True,
+                order_id=request.order_id,
+                vector_clock=self.vector_clocks[request.order_id]
+            )
+
+            # Event FraudDetectionService.CheckKnownFraudUsers
+            result_container = [None]
+            event1 = threading.Thread(target=self._send_request_to_service_treaded, kwargs={
+                "request": request,
+                "stub_class": fraud_detection_grpc.FraudDetectionServiceStub,
+                "connection_string": "fraud_detection:50051",
+                "method_name": "CheckKnownFraudUsers",
+                "result_container": result_container,
+                "index": 0
+            })
+
+            event1.start()
+        
+            # Event TransactionVerificationService.VerifyItems
+            res, err_message = self._do_verification(request, [(lambda data: validate_order_list(data.items), "Validation of order list")])
+            status.success = res
+            status.error_message = err_message
+
+
+            event1.join()
+
+            if status.success and result_container[0].status.success:
+                return self.VerifyCreditCard(request, context)
+            
+            if not status.success:
                 result = order_details.OrderResponce()
                 result.status.CopyFrom(status)
                 return result
-
+            else:
+                return result_container[0]
         except Exception as e:
             logger.error(f"Failed to do items verification: {str(e)}")
             status.success = False
@@ -184,120 +210,119 @@ class TransactionVerificationService(BaseServiceWrapper, transaction_verificatio
             result.status.CopyFrom(status)
             return result
 
-    def _method_template_threaded(self, request, verify_functions, stub_class, connection_string, method_name, result_container, index):
-        result_container[index] = self._method_template(
-            request=request,
-            verify_functions=verify_functions,
-            stub_class=stub_class,
-            connection_string=connection_string,
-            method_name=method_name
-        )
-
-    def VerifyItems(self, request, context):
-        logger.info(f"Verifying items for order id {request.order_id} with vector clock {self.vector_clocks[request.order_id]}")
-
-        result_container = [None, None]
-        event1 = threading.Thread(target=self._method_template_threaded, kwargs={
-            "request": request,
-            "verify_functions": [lambda data: validate_order_list(data.items)],
-            "stub_class": fraud_detection_grpc.FraudDetectionServiceStub,
-            "connection_string": "fraud_detection:50051",
-            "method_name": "CheckKnownFraudUsers",
-            "result_container": result_container,
-            "index": 0
-        })
-
-        event2 = threading.Thread(target=self._method_template_threaded, kwargs={
-            "request": request,
-            "verify_functions": [],
-            "stub_class": transaction_verification_grpc.TransactionVerificationServiceStub,
-            "connection_string": "transaction_verification:50052",
-            "method_name": "VerifyCreditCard",
-            "result_container": result_container,
-            "index": 1
-        })
-
-        event1.start()
-        event2.start()
-
-        event1.join()
-        event2.join()
-
-        status = order_details.StatusMessage(
-            success=all(result.status.success for result in result_container if result),
-            order_id=request.order_id,
-            vector_clock=self.vector_clocks[request.order_id],
-            error_message="; ".join(result.status.error_message for result in result_container if result and not result.status.success)
-        )
-
-        result = order_details.OrderResponce()
-        result.status.CopyFrom(status)
-        for i in range(len(result_container)):
-            if len(result_container[i].recommended_books):
-                result.recommended_books.extend(result_container[i].recommended_books)
-                break
-        return result
-
 
     def VerifyCreditCard(self, request, context):
-        logger.info(f"Verifying credit card for order id {request.order_id} with vector clock {self.vector_clocks[request.order_id]}")
+        try:
+            logger.info(f"Verifying credit card for order id {request.order_id} with vector clock {self.vector_clocks[request.order_id]}")
+            self._update_vector_clock(request.order_id, request.vector_clock)
 
-        result_container = [None, None]
-        event1 = threading.Thread(target=self._method_template_threaded, kwargs={
-            "request": request,
-            "verify_functions": [
-                lambda data: validate_credit_card(data.credit_card.number),
-                lambda data: validate_credit_card_vendor(data.credit_card.number),
-                lambda data: validate_expiration_date(data.credit_card.expiration_date),
-                lambda data: validate_cvv(data.credit_card.cvv)
-            ],
-            "stub_class": fraud_detection_grpc.FraudDetectionServiceStub,
-            "connection_string": "fraud_detection:50051",
-            "method_name": "CheckKnownFraudLocations",
-            "result_container": result_container,
-            "index": 0
-        })
+            status = order_details.StatusMessage(
+                success=True,
+                order_id=request.order_id,
+                vector_clock=self.vector_clocks[request.order_id]
+            )
 
-        event2 = threading.Thread(target=self._method_template_threaded, kwargs={
-            "request": request,
-            "verify_functions": [],
-            "stub_class": transaction_verification_grpc.TransactionVerificationServiceStub,
-            "connection_string": "transaction_verification:50052",
-            "method_name": "VerifyBillingAddress",
-            "result_container": result_container,
-            "index": 1
-        })
+            # Event FraudDetectionService.CheckKnownFraudLocations
+            result_container = [None]
+            event1 = threading.Thread(target=self._send_request_to_service_treaded, kwargs={
+                "request": request,
+                "stub_class": fraud_detection_grpc.FraudDetectionServiceStub,
+                "connection_string": "fraud_detection:50051",
+                "method_name": "CheckKnownFraudLocations",
+                "result_container": result_container,
+                "index": 0
+            })
 
-        event1.start()
-        event2.start()
+            event1.start()
+        
+            # Event TransactionVerificationService.VerifyCreditCard
+            res, err_message = self._do_verification(request, [
+                (lambda data: validate_credit_card(data.credit_card.number), "Validation of credit card number"),
+                (lambda data: validate_credit_card_vendor(data.credit_card.number), "Validation of credit card vendor"),
+                (lambda data: validate_expiration_date(data.credit_card.expiration_date), "Validation of expiration date"),
+                (lambda data: validate_cvv(data.credit_card.cvv), "Validation of CVV")
+            ])
+            status.success = res
+            status.error_message = err_message
 
-        event1.join()
-        event2.join()
 
-        status = order_details.StatusMessage(
-            success=all(result.status.success for result in result_container if result),
-            order_id=request.order_id,
-            vector_clock=self.vector_clocks[request.order_id],
-            error_message="; ".join(result.status.error_message for result in result_container if result and not result.status.success)
-        )
+            event1.join()
 
-        result = order_details.OrderResponce()
-        result.status.CopyFrom(status)
-        for i in range(len(result_container)):
-            if len(result_container[i].recommended_books):
-                result.recommended_books.extend(result_container[i].recommended_books)
-                break
-        return result
+            if status.success and result_container[0].status.success:
+                return self.VerifyBillingAddress(request, context)
+            
+            if not status.success:
+                result = order_details.OrderResponce()
+                result.status.CopyFrom(status)
+                return result
+            else:
+                return result_container[0]
+        except Exception as e:
+            logger.error(f"Failed to do items verification: {str(e)}")
+            status.success = False
+            status.error_message = f"Failed to do items verification: {str(e)}"
+
+            result = order_details.OrderResponce()
+            result.status.CopyFrom(status)
+            return result
+
     
     def VerifyBillingAddress(self, request, context):
-        logger.info(f"Verifying billing address for order id {request.order_id} with vector clock {self.vector_clocks[request.order_id]}")
-        return self._method_template(
-            request=request,
-            verify_functions=[lambda data: validate_location(data.billing_address)],
-            stub_class=fraud_detection_grpc.FraudDetectionServiceStub,
-            connection_string="fraud_detection:50051",
-            method_name="CheckGeneralFraud"
-        )
+        try:
+            logger.info(f"Verifying billing address for order id {request.order_id} with vector clock {self.vector_clocks[request.order_id]}")
+            self._update_vector_clock(request.order_id, request.vector_clock)
+
+            status = order_details.StatusMessage(
+                success=True,
+                order_id=request.order_id,
+                vector_clock=self.vector_clocks[request.order_id]
+            )
+
+            # Event FraudDetectionService.CheckGeneralFraud
+            result_container = [None]
+            event1 = threading.Thread(target=self._send_request_to_service_treaded, kwargs={
+                "request": request,
+                "stub_class": fraud_detection_grpc.FraudDetectionServiceStub,
+                "connection_string": "fraud_detection:50051",
+                "method_name": "CheckGeneralFraud",
+                "result_container": result_container,
+                "index": 0
+            })
+
+            event1.start()
+        
+            # Event TransactionVerificationService.VerifyBillingAddress
+            res, err_message = self._do_verification(request, [(lambda data: validate_location(data.billing_address), "Validation of billing address")])
+            status.success = res
+            status.error_message = err_message
+
+
+            event1.join()
+
+            if status.success and result_container[0].status.success:
+                result = order_details.OrderResponce()
+                result.status.CopyFrom(status)
+                for i in range(len(result_container)):
+                    if len(result_container[i].recommended_books):
+                        result.recommended_books.extend(result_container[i].recommended_books)
+                        break
+                return result
+
+            if not status.success:
+                result = order_details.OrderResponce()
+                result.status.CopyFrom(status)
+                return result
+            else:
+                return result_container[0]
+        except Exception as e:
+            logger.error(f"Failed to do items verification: {str(e)}")
+            status.success = False
+            status.error_message = f"Failed to do items verification: {str(e)}"
+
+            result = order_details.OrderResponce()
+            result.status.CopyFrom(status)
+            return result
+
 
     
 def serve():

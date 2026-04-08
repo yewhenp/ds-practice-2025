@@ -29,6 +29,7 @@ class BaseServiceWrapper:
         self.vector_clocks = dict()
         self.order_details = dict()
         self._main_lock = threading.Lock()
+        self.logger = None
 
     def InitTransaction(self, request, context):
         with self._main_lock:
@@ -42,6 +43,10 @@ class BaseServiceWrapper:
     def ClearTransaction(self, request, context):
         with self._main_lock:
             if request.order_id in self.order_details:
+                if self.logger:
+                    self.logger.info(f"Clearing transaction for order id {request.order_id} with vector clock {self.vector_clocks[request.order_id]}")
+                else:
+                    print(f"Clearing transaction for order id {request.order_id} with vector clock {self.vector_clocks[request.order_id]}")
                 del self.order_details[request.order_id]
                 del self.vector_clocks[request.order_id]
         return order_details.StatusMessage(
@@ -63,6 +68,5 @@ class BaseServiceWrapper:
             stub = stub_class(channel)
             method = getattr(stub, method_name)
             response = method(message)
-            print(f"Response from {method_name}: {response}")
             self._update_vector_clock(message.order_id, response.status.vector_clock, increment_self=False)
         return response
