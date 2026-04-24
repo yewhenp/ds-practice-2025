@@ -37,59 +37,59 @@ services:
       # Mount the orchestrator/src directory in the current directory to the /app/orchestrator/src directory in the container
       - ./orchestrator/src:/app/orchestrator/src
       - ./logs:/app/logs
-  recommendation_system:
-     build:
-       context: ./
-       dockerfile: ./recommendation_system/Dockerfile
-     ports:
-       - 50053:50053
-     environment:
-       - PYTHONUNBUFFERED=TRUE
-       - PYTHONFILE=/app/recommendation_system/src/app.py
-       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5.2}
-     volumes:
-       - ./utils:/app/utils
-       - ./recommendation_system/src:/app/recommendation_system/src
-       - ./logs:/app/logs
-  fraud_detection:
-    build:
-      # Use the current directory as the build context
-      # This allows us to access the files in the current directory inside the Dockerfile
-      context: ./
-      # Use the Dockerfile in the fraud_detection directorys
-      dockerfile: ./fraud_detection/Dockerfile
-    ports:
-      # Expose port 50051 on the host, and map port 50051 of the container to port 50051 on the host
-      - 50051:50051
-    environment:
-      # Pass the environment variables to the container
-      # The PYTHONUNBUFFERED environment variable ensures that the output from the application is logged to the console
-      - PYTHONUNBUFFERED=TRUE
-      # The PYTHONFILE environment variable specifies the absolute entry point of the application
-      # Check app.py in the fraud_detection directory to see how this is used
-      - PYTHONFILE=/app/fraud_detection/src/app.py
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5.2}
-    volumes:
-      # Mount the utils directory in the current directory to the /app/utils directory in the container
-      - ./utils:/app/utils
-      # Mount the fraud_detection/src directory in the current directory to the /app/fraud_detection/src directory in the container
-      - ./fraud_detection/src:/app/fraud_detection/src
-      - ./logs:/app/logs
-  transaction_verification:
-    build:
-      context: ./
-      dockerfile: ./transaction_verification/Dockerfile
-    ports:
-      - 50052:50052
-    environment:
-      - PYTHONUNBUFFERED=TRUE
-      - PYTHONFILE=/app/transaction_verification/src/app.py
-    volumes:
-      - ./utils:/app/utils
-      - ./transaction_verification/src:/app/transaction_verification/src
-      - ./logs:/app/logs
+  # recommendation_system:
+  #    build:
+  #      context: ./
+  #      dockerfile: ./recommendation_system/Dockerfile
+  #    ports:
+  #      - 50053:50053
+  #    environment:
+  #      - PYTHONUNBUFFERED=TRUE
+  #      - PYTHONFILE=/app/recommendation_system/src/app.py
+  #      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+  #      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5.2}
+  #    volumes:
+  #      - ./utils:/app/utils
+  #      - ./recommendation_system/src:/app/recommendation_system/src
+  #      - ./logs:/app/logs
+  # fraud_detection:
+  #   build:
+  #     # Use the current directory as the build context
+  #     # This allows us to access the files in the current directory inside the Dockerfile
+  #     context: ./
+  #     # Use the Dockerfile in the fraud_detection directorys
+  #     dockerfile: ./fraud_detection/Dockerfile
+  #   ports:
+  #     # Expose port 50051 on the host, and map port 50051 of the container to port 50051 on the host
+  #     - 50051:50051
+  #   environment:
+  #     # Pass the environment variables to the container
+  #     # The PYTHONUNBUFFERED environment variable ensures that the output from the application is logged to the console
+  #     - PYTHONUNBUFFERED=TRUE
+  #     # The PYTHONFILE environment variable specifies the absolute entry point of the application
+  #     # Check app.py in the fraud_detection directory to see how this is used
+  #     - PYTHONFILE=/app/fraud_detection/src/app.py
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+  #     - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5.2}
+  #   volumes:
+  #     # Mount the utils directory in the current directory to the /app/utils directory in the container
+  #     - ./utils:/app/utils
+  #     # Mount the fraud_detection/src directory in the current directory to the /app/fraud_detection/src directory in the container
+  #     - ./fraud_detection/src:/app/fraud_detection/src
+  #     - ./logs:/app/logs
+  # transaction_verification:
+  #   build:
+  #     context: ./
+  #     dockerfile: ./transaction_verification/Dockerfile
+  #   ports:
+  #     - 50052:50052
+  #   environment:
+  #     - PYTHONUNBUFFERED=TRUE
+  #     - PYTHONFILE=/app/transaction_verification/src/app.py
+  #   volumes:
+  #     - ./utils:/app/utils
+  #     - ./transaction_verification/src:/app/transaction_verification/src
+  #     - ./logs:/app/logs
   order_queue:
     build:
       context: ./
@@ -145,3 +145,23 @@ services:
       - ./utils:/app/utils
       - ./order_executor/src:/app/order_executor/src
       - ./logs:/app/logs
+
+
+  database:
+    build:
+      context: ./
+      dockerfile: ./database/Dockerfile
+    # ports:
+    #   - "50061-50080:50060"
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - PYTHONFILE=/app/database/src/app.py
+    volumes:
+      - ./utils:/app/utils
+      - ./database/src:/app/database/src
+      - ./logs:/app/logs
+    deploy:
+      mode: replicated
+      replicas: 3
+
+

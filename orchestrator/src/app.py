@@ -150,31 +150,32 @@ async def checkout():
         'suggestedBooks': suggested_books
     }
 
-    _ = await asyncio.gather(
-        init_transaction(request_data, order_id, "transaction_verification:50052", transaction_verification_grpc.TransactionVerificationServiceStub),
-        init_transaction(request_data, order_id, "fraud_detection:50051", fraud_detection_grpc.FraudDetectionServiceStub),
-        init_transaction(request_data, order_id, "recommendation_system:50053", recommendation_system_grpc.RecommendationServiceStub),
-    )
+    # _ = await asyncio.gather(
+    #     init_transaction(request_data, order_id, "transaction_verification:50052", transaction_verification_grpc.TransactionVerificationServiceStub),
+    #     init_transaction(request_data, order_id, "fraud_detection:50051", fraud_detection_grpc.FraudDetectionServiceStub),
+    #     init_transaction(request_data, order_id, "recommendation_system:50053", recommendation_system_grpc.RecommendationServiceStub),
+    # )
 
-    general_vector_clock, error_message, results = await call_parallel_services(
-        general_vector_clock,
-        call_action(order_id, "transaction_verification:50052", transaction_verification_grpc.TransactionVerificationServiceStub, "VerifyItems", vector_clock=general_vector_clock),
-    )
-    if error_message:
-        _ = await clear_parallel_services(order_id, general_vector_clock)
-        order_response["status"] = "Order Denied"
-        order_response["errorMessage"] = error_message
-        return order_response
+    # general_vector_clock, error_message, results = await call_parallel_services(
+    #     general_vector_clock,
+    #     call_action(order_id, "transaction_verification:50052", transaction_verification_grpc.TransactionVerificationServiceStub, "VerifyItems", vector_clock=general_vector_clock),
+    # )
+    # if error_message:
+    #     _ = await clear_parallel_services(order_id, general_vector_clock)
+    #     order_response["status"] = "Order Denied"
+    #     order_response["errorMessage"] = error_message
+    #     return order_response
 
     order_response["status"] = "Order Approved"
-    recommended_books = results[0].recommended_books
+    # recommended_books = results[0].recommended_books
+    recommended_books = []
     order_response["suggestedBooks"] = [{
         "title": book.title,
         "author": book.author,
         "description": book.description
     } for book in recommended_books]
 
-    _ = await clear_parallel_services(order_id, general_vector_clock)
+    # _ = await clear_parallel_services(order_id, general_vector_clock)
     await add_to_order_queue(create_input_order_details(request_data, order_id))
     return order_response
 

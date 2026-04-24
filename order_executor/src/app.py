@@ -11,6 +11,8 @@ import pb.services.order_executor_pb2 as order_executor
 import pb.services.order_executor_pb2_grpc as order_executor_grpc
 import pb.services.order_queue_pb2 as order_queue
 import pb.services.order_queue_pb2_grpc as order_queue_grpc
+import pb.services.database_pb2 as database_pb2
+import pb.services.database_pb2_grpc as database_grpc
 
 import grpc
 from concurrent import futures
@@ -170,7 +172,19 @@ class OrderExecutorService(order_executor_grpc.OrderExecutorService):
                         logger.info(f"[LEADER {EXECUTOR_ID}] Executing order {response.order_id}: {response}")
                     else:
                         logger.info(f"[LEADER {EXECUTOR_ID}] Queue empty")
+                if response.order_id:
+                    with grpc.insecure_channel("database:50060") as channel:
+                        stub = database_grpc.DatabaseServiceStub(channel)
+                        for order_item in response.items:
+                            res = stub.ReadData(database_pb2.DBMessage(book_key=order_item.name))
+                            if res.stock_value >= order_item.quantity:
+                                new_stock = res.stock_value - order_item.quantity
+                                stub.WriteData(database_pb2.DBMessage(book_key=order_item.name, stock_value=new_stock))
+                                logger.info(f"Order {response.order_id}: Book '{order_item.name}' stock updated to {new_stock}")
+                            else:
+                                logger.warning(f"Order {response.order_id}: Not enough stock for book '{order_item.name}' (requested {order_item.quantity}, available {res.stock_value})")
 
+                        
             except Exception as e:
                 logger.error(f"Error dequeuing order: {e}")
 

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package bookstore;
+
+import "order_details.proto";
+
+
+message DBMessage {
+  string book_key = 1;
+  optional int32 stock_value = 2;
+}
+
+service DatabaseService {
+    rpc ReadData (DBMessage) returns (DBMessage);
+    rpc WriteData (DBMessage) returns (StatusMessage);
+    rpc WriteData_Impl (DBMessage) returns (StatusMessage);
+}
