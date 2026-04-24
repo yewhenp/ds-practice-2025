@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package bookstore;
+
+message BookDataMessage {
+  string book_key = 1;
+  bool do_impl = 2;
+  optional int32 stock_value = 3;
+}
+
+message CommitStatus {
+    bool prepare = 1;
+    bool success = 2;
+    bool abort = 3;
+}

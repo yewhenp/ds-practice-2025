@@ -4,9 +4,7 @@ package bookstore;
 
 import "commit_protocol.proto";
 
-service DatabaseService {
-    rpc ReadData (BookDataMessage) returns (BookDataMessage);
-    
+service PaymentService {    
     rpc Prepare (BookDataMessage) returns (CommitStatus);
     rpc Commit (BookDataMessage) returns (CommitStatus);
     rpc Abort (BookDataMessage) returns (CommitStatus);

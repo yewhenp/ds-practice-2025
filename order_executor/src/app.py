@@ -13,6 +13,8 @@ import pb.services.order_queue_pb2 as order_queue
 import pb.services.order_queue_pb2_grpc as order_queue_grpc
 import pb.services.database_pb2 as database_pb2
 import pb.services.database_pb2_grpc as database_grpc
+import pb.services.payment_pb2_grpc as payment_grpc
+import pb.services.commit_protocol_pb2 as commit_protocol_pb2
 
 import grpc
 from concurrent import futures
@@ -159,6 +161,45 @@ class OrderExecutorService(order_executor_grpc.OrderExecutorService):
                     if peer in self.have_lived_peers:
                         logger.warning(f"Heartbeat failed to {peer}: {str(e)}")
 
+
+    def _two_phase_commit(self, book_key, stock_value):
+        services = [
+            ("database:50060", database_grpc.DatabaseServiceStub),
+            ("payment:50065", payment_grpc.PaymentServiceStub),
+        ]
+        prepare_results = []
+        for service, stub_class in services:
+            with grpc.insecure_channel(service) as channel:
+                stub = stub_class(channel)
+                prepare_results.append(stub.Prepare(commit_protocol_pb2.BookDataMessage(book_key=book_key, stock_value=stock_value)))
+
+        do_abort = False
+        for res in prepare_results:
+            if not res.prepare:
+                do_abort = True
+                break
+            if res.abort:
+                do_abort = True
+                break
+
+        logger.info(f"Two-phase commit prepare results for book '{book_key}': {[str(res) for res in prepare_results]}")
+
+        if do_abort:
+            logger.error(f"Two-phase commit for book '{book_key}': Aborting...")
+            for service, stub_class in services:
+                with grpc.insecure_channel(service) as channel:
+                    stub = stub_class(channel)
+                    stub.Abort(commit_protocol_pb2.BookDataMessage(book_key=book_key))
+            return False
+        else:
+            logger.info(f"Two-phase commit for book '{book_key}': Committing...")
+            for service, stub_class in services:
+                with grpc.insecure_channel(service) as channel:
+                    stub = stub_class(channel)
+                    stub.Commit(commit_protocol_pb2.BookDataMessage(book_key=book_key))
+            return True
+
+
     def process_orders(self):
         while True:
             time.sleep(2)
@@ -169,18 +210,21 @@ class OrderExecutorService(order_executor_grpc.OrderExecutorService):
                     stub = order_queue_grpc.OrderQueueServiceStub(channel)
                     response = stub.Dequeue(order_queue.DequeueRequest())
                     if response.order_id:
-                        logger.info(f"[LEADER {EXECUTOR_ID}] Executing order {response.order_id}: {response}")
+                        logger.info(f"[LEADER {EXECUTOR_ID}] Executing order {response.order_id}")
                     else:
                         logger.info(f"[LEADER {EXECUTOR_ID}] Queue empty")
                 if response.order_id:
                     with grpc.insecure_channel("database:50060") as channel:
                         stub = database_grpc.DatabaseServiceStub(channel)
                         for order_item in response.items:
-                            res = stub.ReadData(database_pb2.DBMessage(book_key=order_item.name))
+                            res = stub.ReadData(commit_protocol_pb2.BookDataMessage(book_key=order_item.name))
                             if res.stock_value >= order_item.quantity:
                                 new_stock = res.stock_value - order_item.quantity
-                                stub.WriteData(database_pb2.DBMessage(book_key=order_item.name, stock_value=new_stock))
-                                logger.info(f"Order {response.order_id}: Book '{order_item.name}' stock updated to {new_stock}")
+                                success = self._two_phase_commit(order_item.name, new_stock)
+                                if success:
+                                    logger.info(f"Order {response.order_id}: Book '{order_item.name}' stock updated to {new_stock}")
+                                else:
+                                    logger.error(f"Order {response.order_id}: Failed to update stock for book '{order_item.name}'")
                             else:
                                 logger.warning(f"Order {response.order_id}: Not enough stock for book '{order_item.name}' (requested {order_item.quantity}, available {res.stock_value})")
 
