@@ -63,8 +63,8 @@ class DatabaseService(database_grpc.DatabaseService):
                 stock_value=request.stock_value,
                 do_impl=True
             )
+            responces = []
             for ip in self._nslookup():
-                responces = []
                 logger.info(f"Prepare (leader): sending request to {ip}")
                 with grpc.insecure_channel(ip + ":" + port) as channel:
                     stub = database_grpc.DatabaseServiceStub(channel)
