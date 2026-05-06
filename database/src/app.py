@@ -97,9 +97,10 @@ class DatabaseService(database_grpc.DatabaseService):
         if in_request.book_key not in self.orders_table:
             return commit_protocol_pb2.CommitStatus(abort=True)
         
-        request, prepared = self.orders_table.pop(in_request.book_key)
+        request, prepared = self.orders_table.get(in_request.book_key)
         if not prepared:
             return commit_protocol_pb2.CommitStatus(abort=True)
+        del self.orders_table[in_request.book_key]
 
         if in_request.do_impl:
             with self.lock:
