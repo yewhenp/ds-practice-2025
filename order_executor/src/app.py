@@ -140,7 +140,7 @@ class OrderExecutorService(order_executor_grpc.OrderExecutorService):
 
                 time_since_heartbeat = time.time() - self.last_heartbeat
 
-            if time_since_heartbeat > 5:
+            if time_since_heartbeat > 30:
                 logger.warning("Leader heartbeat timeout, starting election")
                 self.start_election()
 
