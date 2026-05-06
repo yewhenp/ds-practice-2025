@@ -54,6 +54,9 @@ class DatabaseService(database_grpc.DatabaseService):
     def Prepare(self, request, context):
         if request.do_impl:
             with self.lock:
+                if request.book_key in self.orders_table:
+                    logger.warning(f"Prepare (impl): key={request.book_key} already in orders_table, aborting")
+                    return commit_protocol_pb2.CommitStatus(abort=True)
                 self.orders_table[request.book_key] = (request, True)
                 logger.info(f"Prepare (impl): key={request.book_key}, value={request.stock_value}")
                 return commit_protocol_pb2.CommitStatus(prepare=True)
