@@ -162,42 +162,81 @@ class OrderExecutorService(order_executor_grpc.OrderExecutorService):
                         logger.warning(f"Heartbeat failed to {peer}: {str(e)}")
 
 
-    def _two_phase_commit(self, book_key, stock_value):
+    def _call_with_retry(
+        self,
+        service,
+        stub_class,
+        method_name,
+        request,
+        retries=3,
+    ):
+        last_error = None
+
+        for attempt in range(retries):
+            try:
+                with grpc.insecure_channel(service) as channel:
+                    stub = stub_class(channel)
+                    method = getattr(stub, method_name)
+                    result = method(request, timeout=5)
+                    logger.info(f"{method_name} delivered to {service}")
+                    return result, True
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"{method_name} failed on {service}, "
+                    f"attempt {attempt + 1}/{retries}: {e}"
+                )
+                time.sleep(2)
+        logger.error(f"{method_name} failed on {service} after {retries} attempts: {last_error}")
+        return None, False
+
+    def _prepare_all(self, services, book_key, stock_value):
+        for service, stub_class in services:
+            prepare_request = commit_protocol_pb2.BookDataMessage(book_key=book_key, stock_value=stock_value)
+            result, success = self._call_with_retry(service, stub_class, "Prepare", prepare_request)
+            if not success or not result.prepare or result.abort:
+                logger.error(f"Prepare failed on {service} for book '{book_key}'")
+                return False
+        return True
+
+    def _abort_all(self, services, book_key):
+        for service, stub_class in services:
+            abort_request = commit_protocol_pb2.BookDataMessage(book_key=book_key)
+            result, success = self._call_with_retry(service, stub_class, "Abort", abort_request)
+            if not success:
+                logger.error(f"Abort failed on {service} for book '{book_key}'")
+            if not result.abort:
+                logger.warning(f"{service} did not acknowledge abort for book '{book_key}'")
+
+    def _commit_all(self, services, book_key):
+        all_success = True
+        for service, stub_class in services:
+            commit_request = commit_protocol_pb2.BookDataMessage(book_key=book_key)
+            result, success = self._call_with_retry(service, stub_class, "Commit", commit_request, retries=100)
+            if not success or not result.success or result.abort:
+                logger.error(f"Commit failed on {service} for book '{book_key}'")
+                all_success = False
+        return all_success
+        
+
+    def _two_phase_commit(self, book_key, stock_value, old_stock):
         services = [
             ("database:50060", database_grpc.DatabaseServiceStub),
             ("payment:50065", payment_grpc.PaymentServiceStub),
         ]
-        prepare_results = []
-        for service, stub_class in services:
-            with grpc.insecure_channel(service) as channel:
-                stub = stub_class(channel)
-                prepare_results.append(stub.Prepare(commit_protocol_pb2.BookDataMessage(book_key=book_key, stock_value=stock_value)))
-
-        do_abort = False
-        for res in prepare_results:
-            if not res.prepare:
-                do_abort = True
-                break
-            if res.abort:
-                do_abort = True
-                break
-
-        logger.info(f"Two-phase commit prepare results for book '{book_key}': {[str(res) for res in prepare_results]}")
-
-        if do_abort:
-            logger.error(f"Two-phase commit for book '{book_key}': Aborting...")
-            for service, stub_class in services:
-                with grpc.insecure_channel(service) as channel:
-                    stub = stub_class(channel)
-                    stub.Abort(commit_protocol_pb2.BookDataMessage(book_key=book_key))
+        success = self._prepare_all(services, book_key, stock_value)
+        if not success:
+            logger.error(f"Two-phase commit for book '{book_key}': Prepare phase failed, aborting...")
+            self._abort_all(services, book_key)
             return False
-        else:
-            logger.info(f"Two-phase commit for book '{book_key}': Committing...")
-            for service, stub_class in services:
-                with grpc.insecure_channel(service) as channel:
-                    stub = stub_class(channel)
-                    stub.Commit(commit_protocol_pb2.BookDataMessage(book_key=book_key))
-            return True
+
+        success = self._commit_all(services, book_key)
+        if not success:
+            logger.error(f"Two-phase commit for book '{book_key}': Commit phase failed, some services may be inconsistent. Manual intervention may be required.")
+            return False
+        
+        logger.info(f"Two-phase commit for book '{book_key}' completed successfully")
+        return True
 
 
     def process_orders(self):
@@ -220,7 +259,7 @@ class OrderExecutorService(order_executor_grpc.OrderExecutorService):
                             res = stub.ReadData(commit_protocol_pb2.BookDataMessage(book_key=order_item.name))
                             if res.stock_value >= order_item.quantity:
                                 new_stock = res.stock_value - order_item.quantity
-                                success = self._two_phase_commit(order_item.name, new_stock)
+                                success = self._two_phase_commit(order_item.name, new_stock, old_stock=res.stock_value)
                                 if success:
                                     logger.info(f"Order {response.order_id}: Book '{order_item.name}' stock updated to {new_stock}")
                                 else:
