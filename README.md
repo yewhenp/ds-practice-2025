@@ -104,6 +104,46 @@ The system follows a **microservice architecture with centralized entry point + 
 - Queue + leader executor ensures mutual exclusion for dequeue/execution in normal operation.
 - Without persistent storage/retry semantics, processing guarantees are practical but not fully fault-tolerant in crash scenarios.
 
+## Checkpoint #3: Evaluation and Protocol Analysis
+
+### Implementation description
+
+- A new gRPC `DatabaseService` was added with `ReadData`, `Prepare`, `Commit`, and `Abort` operations.
+- The database service is configured with 3 replicas in `docker-compose.yaml` (`deploy.replicas: 3`).
+- The database module implements a primary-like per-request coordination pattern: the replica that receives the external DB request fans out `Prepare/Commit/Abort` to the `database` service replicas discovered via DNS.
+- The `order_executor` leader dequeues approved orders, reads current stock (`ReadData`), computes new stock, and triggers the write path.
+- A new dummy `PaymentService` was added as a commit participant (`Prepare/Commit/Abort`).
+- The distributed commitment protocol is Two-Phase Commit (2PC) coordinated by the executor.
+- If the coordinator decides `Commit`, the database applies the stock update and payment executes its final operation; if it decides `Abort`, participants keep no final side effects.
+
+### Consistency protocol diagram
+
+![Consistency Protocol](img/Consistency-protocol-diagram.png)
+
+
+- The diagram shows executor requests reaching the database layer and write coordination across DB replicas.
+- The executor performs reads through the database gRPC endpoint (`ReadData`), then initiates write-related prepare/commit steps.
+- Writes are handled as `Prepare -> Commit/Abort`, with the contacted DB replica forwarding internal replication requests to other DB instances.
+- Consistency is maintained by delaying final DB state change until commit and by propagating commit decisions across replicas.
+- Trade-offs: stronger write ordering in normal operation, but higher write latency, coordinator dependency, and limited fault tolerance under failures.
+
+### Distributed commitment protocol diagram
+
+![Distributed Commitment Protocol](img/Commitment-protocol-diagram.png)
+
+
+- The executor acts as the 2PC coordinator; `DatabaseService` and `PaymentService` are participants.
+- In the prepare/vote phase, executor sends `Prepare` to both participants and collects their statuses.
+- If all votes are positive, executor sends `Commit`; otherwise, it sends `Abort`.
+- The database stock update is applied only during `Commit`, not during `Prepare`.
+- The payment operation is executed only during `Commit`; on `Abort`, prepared state is discarded and no final payment/update is applied.
+
+### Limitations
+
+- 2PC has blocking risk if the coordinator fails after participants prepare.
+- The coordinator role is centralized in the current leader executor instance.
+- Database/payment prepared state is in-memory, so crash recovery is limited.
+
 ### Prerequisites
 
 - Docker & Docker Compose
