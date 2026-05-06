@@ -144,6 +144,66 @@ The system follows a **microservice architecture with centralized entry point + 
 - The coordinator role is centralized in the current leader executor instance.
 - Database/payment prepared state is in-memory, so crash recovery is limited.
 
+### Bonus 3: Coordinator Failure During the Commitment Protocol
+
+**Context.** In the current implementation, the leader `order_executor` is the **2PC coordinator**, while `DatabaseService` and `PaymentService` are **participants**. The coordinator starts `_two_phase_commit`, sends `Prepare`, collects votes, and broadcasts the final `Commit` or `Abort`.
+
+#### Failure scenarios and consequences
+
+1. **Coordinator fails before `Prepare`**
+- No participant has entered prepared state.
+- No final side effects are applied.
+- The order can be retried safely.
+
+2. **Coordinator fails after `Prepare`, before final decision**
+- Participants may have voted YES and moved to prepared state.
+- In standard 2PC, participants cannot safely decide alone.
+- Transaction may block until coordinator recovers.
+
+3. **Coordinator fails after sending `Commit` to only some participants**
+- One participant may finalize while another remains prepared.
+- Temporary inconsistency can occur.
+- Example: payment committed while stock update is still pending, or vice versa.
+
+#### Practical impact on this system
+
+- Orders can remain in uncertain or partially completed state.
+- Prepared records can remain pending and reduce throughput.
+- Availability drops while participants wait for final decision.
+- Recovery progress depends on coordinator restoration path.
+
+#### Proposed solution 
+
+1. **Durable coordinator log in `order_executor`**
+- Persist `transaction_id`, participants, phase, votes, and final decision.
+
+2. **Durable participant logs**
+- Persist prepare/commit/abort state in `DatabaseService` and `PaymentService`.
+
+3. **Idempotent protocol operations**
+- Make `Prepare`, `Commit`, and `Abort` safe to repeat by `transaction_id`.
+
+4. **Coordinator recovery workflow**
+- On restart, load unfinished transactions and re-send final decisions.
+
+5. **Participant timeout and decision query**
+- If stuck in prepared state, participants query the recovered coordinator for final outcome.
+
+6. **Optional coordinator resilience upgrade**
+- Replicate coordinator state or strengthen executor failover to reduce single-point dependency.
+
+#### Why this solution helps
+
+- Durable logs preserve decision state across crashes.
+- Idempotency prevents double stock updates or duplicate payment effects.
+- Recovery replay resolves blocked prepared transactions.
+- Coordinator failover improves availability.
+- Limitation remains: classic 2PC can still block while no coordinator (or decision log) is reachable.
+
+#### Optional extension
+
+Three-Phase Commit can reduce blocking under stronger timing assumptions by adding a pre-commit phase, but it increases complexity and message cost. For this project, durable logging + recovery (optionally with coordinator replication) is the most practical next step.
+
 ### Prerequisites
 
 - Docker & Docker Compose
