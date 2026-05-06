@@ -94,29 +94,30 @@ class DatabaseService(database_grpc.DatabaseService):
         if SHOULD_COMMIT_FAIL and random() < 0.1:
             logger.error("Failure from Commit, simulating temporary failure...")
             context.abort(grpc.StatusCode.UNAVAILABLE, "simulated temporary failure")
-        if in_request.book_key not in self.orders_table:
-            return commit_protocol_pb2.CommitStatus(abort=True)
-        
-        request, prepared = self.orders_table.get(in_request.book_key)
-        if not prepared:
-            return commit_protocol_pb2.CommitStatus(abort=True)
-        del self.orders_table[in_request.book_key]
 
-        if in_request.do_impl:
-            with self.lock:
+        with self.lock:
+            if in_request.book_key not in self.orders_table:
+                return commit_protocol_pb2.CommitStatus(abort=True)
+            
+            request, prepared = self.orders_table.get(in_request.book_key)
+            if not prepared:
+                return commit_protocol_pb2.CommitStatus(abort=True)
+
+            if in_request.do_impl:
                 key = request.book_key
                 value = request.stock_value
                 self.db[key] = value
+                del self.orders_table[key]
                 logger.info(f"Commit (impl): key={key}, value={value}")
                 return commit_protocol_pb2.CommitStatus(success=True)
-        else:
+            # else:
             request_impl = commit_protocol_pb2.BookDataMessage(
                 book_key=request.book_key,
                 stock_value=request.stock_value,
                 do_impl=True
             )
+            responces = []
             for ip in self._nslookup():
-                responces = []
                 logger.info(f"Commit (leader): sending request to {ip}")
                 with grpc.insecure_channel(ip + ":" + port) as channel:
                     stub = database_grpc.DatabaseServiceStub(channel)
