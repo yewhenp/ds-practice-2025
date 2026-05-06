@@ -110,28 +110,28 @@ class DatabaseService(database_grpc.DatabaseService):
                 del self.orders_table[key]
                 logger.info(f"Commit (impl): key={key}, value={value}")
                 return commit_protocol_pb2.CommitStatus(success=True)
-            # else:
-            request_impl = commit_protocol_pb2.BookDataMessage(
-                book_key=request.book_key,
-                stock_value=request.stock_value,
-                do_impl=True
-            )
-            responces = []
-            for ip in self._nslookup():
-                logger.info(f"Commit (leader): sending request to {ip}")
-                with grpc.insecure_channel(ip + ":" + port) as channel:
-                    stub = database_grpc.DatabaseServiceStub(channel)
-                    response = stub.Commit(request_impl)
-                    responces.append(response)
+        # else:
+        request_impl = commit_protocol_pb2.BookDataMessage(
+            book_key=request.book_key,
+            stock_value=request.stock_value,
+            do_impl=True
+        )
+        responces = []
+        for ip in self._nslookup():
+            logger.info(f"Commit (leader): sending request to {ip}")
+            with grpc.insecure_channel(ip + ":" + port) as channel:
+                stub = database_grpc.DatabaseServiceStub(channel)
+                response = stub.Commit(request_impl)
+                responces.append(response)
 
-            final_response = commit_protocol_pb2.CommitStatus(
-                prepare = all([one_resp.prepare for one_resp in responces]),
-                success = all([one_resp.success for one_resp in responces]),
-                abort = any([one_resp.abort for one_resp in responces]),
-            )
+        final_response = commit_protocol_pb2.CommitStatus(
+            prepare = all([one_resp.prepare for one_resp in responces]),
+            success = all([one_resp.success for one_resp in responces]),
+            abort = any([one_resp.abort for one_resp in responces]),
+        )
 
-            logger.info(f"Commit (leader): key={request_impl.book_key}, value={request_impl.stock_value}")
-            return final_response
+        logger.info(f"Commit (leader): key={request_impl.book_key}, value={request_impl.stock_value}")
+        return final_response
 
 
     def Abort(self, request, context):
