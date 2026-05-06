@@ -89,6 +89,7 @@ class DatabaseService(database_grpc.DatabaseService):
             return commit_protocol_pb2.CommitStatus(abort=True)
         
         request, prepared = self.orders_table.get(in_request.book_key)
+        request, prepared = self.orders_table.pop(in_request.book_key)
         if not prepared:
             return commit_protocol_pb2.CommitStatus(abort=True)
 
