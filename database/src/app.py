@@ -1,6 +1,7 @@
 import sys
 import os
 import threading
+from random import random
 
 # This set of lines are needed to import the gRPC stubs.
 # The path of the stubs is relative to the current file, or absolute inside the container.
@@ -25,6 +26,8 @@ import socket
 
 
 port = "50060"
+SHOULD_PREPARE_FAIL = False
+SHOULD_COMMIT_FAIL = False
 
 class DatabaseService(database_grpc.DatabaseService):
     def __init__(self):
@@ -52,6 +55,9 @@ class DatabaseService(database_grpc.DatabaseService):
         return ip_list
     
     def Prepare(self, request, context):
+        if SHOULD_PREPARE_FAIL and random() < 0.1:
+            logger.error("Failure from Prepare, simulating temporary failure...")
+            context.abort(grpc.StatusCode.UNAVAILABLE, "simulated temporary failure")
         if request.do_impl:
             with self.lock:
                 if request.book_key in self.orders_table:
@@ -85,10 +91,12 @@ class DatabaseService(database_grpc.DatabaseService):
 
 
     def Commit(self, in_request, context):
+        if SHOULD_COMMIT_FAIL and random() < 0.1:
+            logger.error("Failure from Commit, simulating temporary failure...")
+            context.abort(grpc.StatusCode.UNAVAILABLE, "simulated temporary failure")
         if in_request.book_key not in self.orders_table:
             return commit_protocol_pb2.CommitStatus(abort=True)
         
-        request, prepared = self.orders_table.get(in_request.book_key)
         request, prepared = self.orders_table.pop(in_request.book_key)
         if not prepared:
             return commit_protocol_pb2.CommitStatus(abort=True)
