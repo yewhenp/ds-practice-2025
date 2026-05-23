@@ -28,6 +28,10 @@ from geopy.geocoders import Nominatim
 logger = setup_logger("TransactionVerificationService")
 
 
+from telemetry.telemetry import get_telemetry
+tracer, meter = get_telemetry("transaction_verification")
+
+
 def validate_credit_card(card_number):
     # credit card verification - Luhn's Algorithm
     # reference - https://dev.to/seraph776/validate-credit-card-numbers-using-python-37j9
@@ -184,13 +188,14 @@ class TransactionVerificationService(BaseServiceWrapper, transaction_verificatio
 
             event1.start()
         
-            # Event TransactionVerificationService.VerifyItems
-            res, err_message = self._do_verification(request, [(lambda data: validate_order_list(data.items), "Validation of order list")])
+            with tracer.start_as_current_span("VerifyItems"):
+                # Event TransactionVerificationService.VerifyItems
+                res, err_message = self._do_verification(request, [(lambda data: validate_order_list(data.items), "Validation of order list")])
             status.success = res
             status.error_message = err_message
 
-
-            event1.join()
+            with tracer.start_as_current_span("Wait CheckKnownFraudUsers"):
+                event1.join()
 
             if status.success and result_container[0].status.success:
                 return self.VerifyCreditCard(request, context)
@@ -236,17 +241,19 @@ class TransactionVerificationService(BaseServiceWrapper, transaction_verificatio
             event1.start()
         
             # Event TransactionVerificationService.VerifyCreditCard
-            res, err_message = self._do_verification(request, [
-                (lambda data: validate_credit_card(data.credit_card.number), "Validation of credit card number"),
-                (lambda data: validate_credit_card_vendor(data.credit_card.number), "Validation of credit card vendor"),
-                (lambda data: validate_expiration_date(data.credit_card.expiration_date), "Validation of expiration date"),
-                (lambda data: validate_cvv(data.credit_card.cvv), "Validation of CVV")
-            ])
+            with tracer.start_as_current_span("VerifyCreditCard"):
+                res, err_message = self._do_verification(request, [
+                    (lambda data: validate_credit_card(data.credit_card.number), "Validation of credit card number"),
+                    (lambda data: validate_credit_card_vendor(data.credit_card.number), "Validation of credit card vendor"),
+                    (lambda data: validate_expiration_date(data.credit_card.expiration_date), "Validation of expiration date"),
+                    (lambda data: validate_cvv(data.credit_card.cvv), "Validation of CVV")
+                ])
             status.success = res
             status.error_message = err_message
 
 
-            event1.join()
+            with tracer.start_as_current_span("Wait CheckKnownFraudLocations"):
+                event1.join()
 
             if status.success and result_container[0].status.success:
                 return self.VerifyBillingAddress(request, context)
@@ -292,12 +299,14 @@ class TransactionVerificationService(BaseServiceWrapper, transaction_verificatio
             event1.start()
         
             # Event TransactionVerificationService.VerifyBillingAddress
-            res, err_message = self._do_verification(request, [(lambda data: validate_location(data.billing_address), "Validation of billing address")])
+            with tracer.start_as_current_span("VerifyBillingAddress"):
+                res, err_message = self._do_verification(request, [(lambda data: validate_location(data.billing_address), "Validation of billing address")])
             status.success = res
             status.error_message = err_message
 
 
-            event1.join()
+            with tracer.start_as_current_span("Wait CheckGeneralFraud"):
+                event1.join()
 
             if status.success and result_container[0].status.success:
                 result = order_details.OrderResponce()

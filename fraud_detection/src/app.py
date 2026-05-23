@@ -31,6 +31,12 @@ import json
 import re
 
 
+from telemetry.telemetry import get_telemetry
+tracer, meter = get_telemetry("transaction_verification")
+
+fraud_transaction_counter = meter.create_counter(name="FraudTransactions")
+
+
 def call_action(order_id, connection_string, stub_class, method_name, vector_clock=[0,0,0]):
     with grpc.insecure_channel(connection_string) as channel:
         stub = stub_class(channel)
@@ -215,6 +221,7 @@ class FraudDetectionService(BaseServiceWrapper, fraud_detection_grpc.FraudDetect
             order = order_details["order"]
             if order.user.name in known_fraud_users:
                 is_fraud = True
+                fraud_transaction_counter.add(1)
                 error_message = "User is in known fraud list"
             else:
                 is_fraud = False
@@ -238,6 +245,7 @@ class FraudDetectionService(BaseServiceWrapper, fraud_detection_grpc.FraudDetect
             order = order_details["order"]
             if order.billing_address.street in known_fraud_locations:
                 is_fraud = True
+                fraud_transaction_counter.add(1)
                 error_message = "Billing address is in known fraud locations"
             else:
                 is_fraud = False
@@ -265,6 +273,8 @@ class FraudDetectionService(BaseServiceWrapper, fraud_detection_grpc.FraudDetect
             
             if not result["is_fraud"]:
                 return call_action(request.order_id, "recommendation_system:50053", recommendation_system_grpc.RecommendationServiceStub, "GetRecommendations", vector_clock=merged_clock)
+            
+            fraud_transaction_counter.add(1)
             return order_details_pb2.OrderResponce(
                 status=order_details_pb2.StatusMessage(
                     success = result["is_fraud"] == False,

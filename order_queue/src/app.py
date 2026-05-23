@@ -20,6 +20,11 @@ from concurrent import futures
 from log_utils.logger import setup_logger
 logger = setup_logger("OrderQueueService")
 
+from telemetry.telemetry import get_telemetry
+tracer, meter = get_telemetry("orchestrator")
+
+order_queue_size = meter.create_up_down_counter(name="OrderQueueSize")
+
 
 class OrderQueueService(order_queue_grpc.OrderQueueService):
 
@@ -31,6 +36,7 @@ class OrderQueueService(order_queue_grpc.OrderQueueService):
         with self._lock:
             self._order_details.append(request)
             logger.info(f"Enqueued order with ID: {order_id}")
+            order_queue_size.add(1)
         return order_details_pb2.StatusMessage(
             success = True,
             order_id = order_id
@@ -43,6 +49,7 @@ class OrderQueueService(order_queue_grpc.OrderQueueService):
                 return order_details_pb2.InputOrderDetails()  # Return empty details if queue is empty
             order_details = self._order_details.pop(0)
             logger.info(f"Dequeued order with ID: {order_details.order_id}")
+            order_queue_size.add(-1)
         return order_details
 
 def serve():

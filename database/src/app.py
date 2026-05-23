@@ -25,6 +25,12 @@ logger = setup_logger("DatabaseService")
 import socket
 
 
+from telemetry.telemetry import get_telemetry
+tracer, meter = get_telemetry("orchestrator")
+
+total_book_count = meter.create_up_down_counter(name="TotalBookCount")
+
+
 port = "50060"
 SHOULD_PREPARE_FAIL = False
 SHOULD_COMMIT_FAIL = False
@@ -37,6 +43,8 @@ class DatabaseService(database_grpc.DatabaseService):
             "Book B": 5,
         }
         self.orders_table = {}
+
+        total_book_count.add(sum(self.db.values()))
 
     def ReadData(self, request, context):
         with self.lock:
@@ -110,6 +118,13 @@ class DatabaseService(database_grpc.DatabaseService):
                 del self.orders_table[key]
                 logger.info(f"Commit (impl): key={key}, value={value}")
                 return commit_protocol_pb2.CommitStatus(success=True)
+            
+            else:
+                key = request.book_key
+                value = request.stock_value
+                diff = self.db.get(key, 0) - value
+                total_book_count.add(-diff)
+
         # else:
         request_impl = commit_protocol_pb2.BookDataMessage(
             book_key=request.book_key,
@@ -159,6 +174,14 @@ class DatabaseService(database_grpc.DatabaseService):
             return final_response
 
 
+    def TopUp(self, request, context):
+        with self.lock:
+            key = request.book_key
+            value = request.stock_value
+            self.db[key] = self.db.get(key, 0) + value
+            total_book_count.add(value)
+            logger.info(f"TopUp: key={key}, value={value}")
+            return commit_protocol_pb2.CommitStatus(success=True)
 
 
 def serve():

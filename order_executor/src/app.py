@@ -29,6 +29,12 @@ from log_utils.logger import setup_logger
 logger = setup_logger(f"OrderExecutorService-{EXECUTOR_ID}")
 
 
+from telemetry.telemetry import get_telemetry
+tracer, meter = get_telemetry("order_executor")
+
+order_execution_duration = meter.create_histogram(name="DurationOfTheOrderExecution", unit="ms")
+
+
 class OrderExecutorService(order_executor_grpc.OrderExecutorService):
 
     def __init__(self):
@@ -253,6 +259,7 @@ class OrderExecutorService(order_executor_grpc.OrderExecutorService):
                     else:
                         logger.info(f"[LEADER {EXECUTOR_ID}] Queue empty")
                 if response.order_id:
+                    start_time = time.time()
                     with grpc.insecure_channel("database:50060") as channel:
                         stub = database_grpc.DatabaseServiceStub(channel)
                         for order_item in response.items:
@@ -266,7 +273,9 @@ class OrderExecutorService(order_executor_grpc.OrderExecutorService):
                                     logger.error(f"Order {response.order_id}: Failed to update stock for book '{order_item.name}'")
                             else:
                                 logger.warning(f"Order {response.order_id}: Not enough stock for book '{order_item.name}' (requested {order_item.quantity}, available {res.stock_value})")
-
+                    end_time = time.time()
+                    duration = (end_time - start_time) * 1000
+                    order_execution_duration.record(duration)
                         
             except Exception as e:
                 logger.error(f"Error dequeuing order: {e}")
