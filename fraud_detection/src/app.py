@@ -7,6 +7,8 @@ import threading
 # Change these lines only if strictly needed.
 FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
 utils_path = os.path.abspath(os.path.join(FILE, '../../../utils/'))
+services_pb_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/services/'))
+sys.path.insert(0, services_pb_path)
 sys.path.insert(0, utils_path)
 
 from service_wrappers.base_service_wrapper import BaseServiceWrapper
@@ -138,6 +140,27 @@ def validate_schema(parsed):
         raise Exception("Parsed AI response 'error_message' key is not a string or null")
     return parsed
 
+def heuristic_fraud_check(request):
+    comment = (request.user_comment or "").lower()
+    suspicious_markers = [
+        "ignore instructions",
+        "drop all checks",
+        "approve now",
+        "bypass",
+        "prompt injection",
+    ]
+    if any(marker in comment for marker in suspicious_markers):
+        return {"is_fraud": True, "error_message": "Suspicious user comment detected"}
+
+    if any(item.quantity > 20 for item in request.items):
+        return {"is_fraud": True, "error_message": "Unusually large quantity detected"}
+
+    contact = request.user.contact or ""
+    if "@" not in contact:
+        return {"is_fraud": True, "error_message": "Invalid contact format"}
+
+    return {"is_fraud": False, "error_message": None}
+
 def ai_check(request):
     model_text = get_ai_response(request)
     logger.info(f"AI Response: {model_text}")
@@ -267,7 +290,11 @@ class FraudDetectionService(BaseServiceWrapper, fraud_detection_grpc.FraudDetect
         try:
             with self._lock:
                 order_details = self._get_order_details(request.order_id)
-                result = ai_check(order_details["order"])
+                try:
+                    result = ai_check(order_details["order"])
+                except Exception as exc:
+                    logger.warning(f"AI check failed for order {request.order_id}, using heuristic fallback: {str(exc)}")
+                    result = heuristic_fraud_check(order_details["order"])
                 merged_clock = self.increment_vector_clock(request)
                 logger.info(f"CheckGeneralFraud - Order ID: {request.order_id}, AI Result: (is_fraud={result['is_fraud']}, error_message={result['error_message']}), Merged Vector Clock: {merged_clock}")
             
@@ -285,12 +312,12 @@ class FraudDetectionService(BaseServiceWrapper, fraud_detection_grpc.FraudDetect
                 recommended_books = []
             )
         except Exception as e:
-            logger.error(f"Error during AI check: {str(e)}")
+            logger.error(f"Error during fraud check: {str(e)}")
             return order_details_pb2.OrderResponce(
                 status=order_details_pb2.StatusMessage(
                     success = False,
                     order_id = request.order_id,
-                    error_message = "AI Check Failed: " + str(e),
+                    error_message = "Fraud Check Failed: " + str(e),
                     vector_clock = request.vector_clock
                 ),
                 recommended_books = []

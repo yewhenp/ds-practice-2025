@@ -21,6 +21,8 @@ import grpc
 
 FILE = __file__ if '__file__' in globals() else os.getenv("PYTHONFILE", "")
 utils_path = os.path.abspath(os.path.join(FILE, '../../../utils/'))
+services_pb_path = os.path.abspath(os.path.join(FILE, '../../../utils/pb/services/'))
+sys.path.insert(0, services_pb_path)
 sys.path.insert(0, utils_path)
 from log_utils.logger import setup_logger
 logger = setup_logger("Orchestrator")
