@@ -204,11 +204,6 @@ The system follows a **microservice architecture with centralized entry point + 
 
 Three-Phase Commit can reduce blocking under stronger timing assumptions by adding a pre-commit phase, but it increases complexity and message cost. For this project, durable logging + recovery (optionally with coordinator replication) is the most practical next step.
 
-### Metrics
-
-Metric dashboard is available at [http://localhost:3000](http://localhost:3000) (Prometheus + Grafana). The dashboard configuration is available at `docs/dashboard-1779549300275.json`. The dashboard view:
-![Metrics Dashboard](docs/dashboard-view.png)
-
 ## Checkpoint #4: Testing, Validation and Metrics
 
 ### Testing scope
