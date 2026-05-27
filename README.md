@@ -206,7 +206,7 @@ Three-Phase Commit can reduce blocking under stronger timing assumptions by addi
 
 ### Metrics
 
-Metric dashboard is available at [http://localhost:9090](http://localhost:9090) (Prometheus + Grafana). The dashboard configuration is available at `docs/dashboard-1779549300275.json`. The dashboard view:
+Metric dashboard is available at [http://localhost:3000](http://localhost:3000) (Prometheus + Grafana). The dashboard configuration is available at `docs/dashboard-1779549300275.json`. The dashboard view:
 ![Metrics Dashboard](docs/dashboard-view.png)
 
 ### Prerequisites
