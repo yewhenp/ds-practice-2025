@@ -209,6 +209,65 @@ Three-Phase Commit can reduce blocking under stronger timing assumptions by addi
 Metric dashboard is available at [http://localhost:3000](http://localhost:3000) (Prometheus + Grafana). The dashboard configuration is available at `docs/dashboard-1779549300275.json`. The dashboard view:
 ![Metrics Dashboard](docs/dashboard-view.png)
 
+## Checkpoint #4: Testing, Validation and Metrics
+
+### Testing scope
+
+- The full system was tested end-to-end in Docker Compose, including frontend, orchestrator, transaction-verification, fraud-detection, recommendation-system, order-queue, order-executor replicas, database replicas, and payment service.
+- Automated tests were executed with `tests/e2e_cp3_runner.py`.
+- The runner includes preflight checks for:
+  - orchestrator health
+  - frontend wiring to `/checkout`
+  - required services running in `docker compose ps`
+- The runner also validates execution-flow evidence in logs for a successful order across:
+  - `Orchestrator.log`
+  - `TransactionVerificationService.log`
+  - `FraudDetectionService.log`
+  - `RecommendationSystem.log`
+  - `OrderQueueService.log`
+  - one of `OrderExecutorService-*.log`
+
+### Implemented automated scenarios
+
+- **Single non-fraudulent order**
+  - One valid checkout request is sent and expected to be approved.
+- **Multiple non-fraudulent non-conflicting orders**
+  - Six parallel valid requests are sent with non-conflicting quantities and expected to be approved.
+- **Multiple mixed orders**
+  - A mix of valid and intentionally invalid/suspicious requests is sent; expected outcome is a mixture of approvals and denials.
+- **Conflicting orders**
+  - Six parallel requests for the same stock-sensitive item are sent; checkout approvals are expected, and stock conflicts are verified from executor logs.
+- **Load tests**
+  - Burst runs with `10`, `20`, and `30` requests were executed to evaluate behavior under increasing load.
+
+### Latest test results
+
+Run artifact timestamp (UTC): `2026-05-24T16:40:41.511459+00:00`.
+
+| Scenario | Result |
+| --- | --- |
+| Preflight checks | PASS |
+| Single non-fraudulent | PASS (`approved=1`, `denied=0`, `http_failures=0`) |
+| Multiple non-conflicting | PASS (`approved=6`, `denied=0`, `http_failures=0`) |
+| Multiple mixed | PASS (`approved=1`, `denied=3`, `http_failures=0`) |
+| Conflicting orders | PASS (`approved=6`, `denied=0`, `http_failures=0`, `new_stock_conflict_events=3`) |
+| Load `10` | PASS (`approved=10`, `denied=0`, `http_failures=0`) |
+| Load `20` | PASS (`approved=20`, `denied=0`, `http_failures=0`) |
+| Load `30` | PASS (`approved=30`, `denied=0`, `http_failures=0`) |
+| End-to-end single-order flow log evidence | PASS |
+| Overall | PASS |
+
+### Test reports
+
+- Main report (`.log`): `logs/e2e_cp3_report.log`
+- Runner output (`.log`): `logs/e2e_cp3_test_run.log`
+- Optional machine-readable report (`.json`): `logs/e2e_cp3_report.json`
+
+### Metrics
+
+Metric dashboard is available at [http://localhost:3000](http://localhost:3000) (Prometheus + Grafana). The dashboard configuration is available at `docs/dashboard-1779549300275.json`. The dashboard view:
+![Metrics Dashboard](docs/dashboard-view.png)
+
 ### Prerequisites
 
 - Docker & Docker Compose
